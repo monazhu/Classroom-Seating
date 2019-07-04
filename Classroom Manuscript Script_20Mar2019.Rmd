@@ -1,0 +1,797 @@
+---
+title: "Classroom Manuscript"
+author: Mona Zhu
+output: 
+  html_document:
+    fig_width: 8
+    fig_height: 5
+    fig.align: center
+    toc: true
+    toc_float: true
+    theme: cerulean
+    highlight: tango
+    code_folding: hide
+    warning: true
+    message: false
+---
+
+<style>
+pre code, pre, code {
+  overflow-y: auto !important;
+  max-height: 20em;
+}
+</style>
+
+
+```{r, message=F}
+# Packages 
+library(xlsx)
+library(lme4)
+library(reshape2)
+library(ez)
+library(plyr)
+library(ggplot2)
+library(gridExtra)
+```
+
+```{r}
+# set working directory
+setwd("C:/Users/monaj/Dropbox/CANB Lab/Classroom (new)")
+
+# raw data file with both chosen and simulated random seats
+comb<-read.xlsx("Complete Classroom Data_FULLDATA_21Mar2017.xlsx", sheetName="Sheet1")
+comb$UserName=factor(round(comb$UserName, 0)) 
+comb$ClassFreq<-factor(ifelse(comb$Year=="W2015"|comb$Year=="F2015", "Once", "Twice"))
+comb$ClassType<-factor(comb$ClassType, levels(comb$ClassType)[c(2,1)])
+comb$Year<-factor(comb$Year, levels(comb$Year)[c(1,4,2,3)])
+comb$MovedFromPrev<-ifelse(comb$DistFromPrev<.1, 1, 0) # did individuals move (y/n)
+comb$Condition=factor(comb$Condition)
+comb$Condition=factor(comb$Condition, levels(comb$Condition)[c(2,1)])
+comb$ID<-factor(paste0(comb$UserName, comb$Year))
+comb<-comb[c(15, 1:14)]
+
+comb$FinalExam<-factor(ifelse(comb$LogonDate=="2014-12-01"|
+                                  comb$LogonDate=="2015-04-01"|
+                                  comb$LogonDate=="2015-12-01"|
+                                  comb$LogonDate=="2016-03-31"|
+                                  comb$LogonDate=="2017-03-30", "Yes", "No"))
+
+comb$Week<-car::recode(comb$Time, "1=2; 3=2;
+                         8=9; 10=9;
+                         15=16; 17=16;
+                         22=23; 24=23;
+                         29=30; 31=30;
+                         36=37; 38=37;
+                         43=44; 45=44;
+                         50=51; 52=51; 
+                         57=58; 59=58; 
+                         64=65; 66=65;
+                         71=72; 73=72; 
+                         78=79; 80=79;
+                         85=86; 87=86")
+
+
+# subset that excludes "day 1" as there is no data
+comb.sub<-subset(comb, Time!=1 & Condition=="Chosen") 
+
+# subset of data frame containing on individuals' actual seat selection (i.e., exclude simulated random seat selection)
+comb.c<-NULL
+
+# calculating time interval between each class
+for (id in levels(comb.sub$ID)){
+  data<-subset(comb.sub, ID==id)
+  for (i in 1:nrow(data)) {
+    data$Interval[i]<-ifelse(data$Time[i]==data$Time[1], 
+                          data$Time[i]-1, 
+                          data$Time[i]-data$Time[i-1])
+  }
+  comb.c<-rbind(comb.c, data)  
+}
+
+comb.c$Time2<-(comb.c$Time)^2
+comb.cen<-transform(comb.c, Time=scale(Time, scale=F), Order=scale(Order, scale=F))
+comb.cen$Time2<-(comb.cen$Time)^2
+
+once<-subset(comb.c, ClassFreq=="Once")
+once.cen<-subset(comb.c, ClassFreq=="Once")
+twice<-subset(comb.c, ClassFreq=="Twice")
+twice.cen<-subset(comb.cen, ClassFreq=="Twice")
+
+sub<-subset(comb.c, FinalExam=="No")
+sub.cen<-subset(comb.cen, FinalExam=="No")
+```
+
+
+```{r}
+ex<-subset(comb.c, ClassType=="Exam")
+lec<-subset(comb.c, 
+            LogonDate=="2014-09-22"|
+              LogonDate=="2014-10-08"|
+              LogonDate=="2014-10-27"|
+              LogonDate=="2014-11-10"|
+              LogonDate=="2014-11-26"|
+              LogonDate=="2015-02-04"|
+              LogonDate=="2015-03-25"|
+              LogonDate=="2015-10-13"|
+              LogonDate=="2015-11-24"|
+              LogonDate=="2016-01-19"|
+              LogonDate=="2016-02-09"|
+              LogonDate=="2016-03-01"|
+              LogonDate=="2016-03-15"|
+              LogonDate=="2016-03-29")
+
+lecex<-rbind(lec, ex)
+
+lecex$ExamType<-factor(ifelse(lecex$LogonDate=="2014-11-26"|lecex$LogonDate=="2014-12-01"|lecex$LogonDate=="2015-03-25"|lecex$LogonDate=="2015-04-01"|lecex$LogonDate=="2015-11-24"|lecex$LogonDate=="2015-12-01"|lecex$LogonDate=="2016-03-29"|lecex$LogonDate=="2016-03-31", "Final", "Midterm"))
+
+```
+
+
+## Descriptives
+
+There are a total of `r length(unique(comb.c$ID))` observations and `r length(unique(comb.c$UserName))` unique users in the study
+
+## Examining Distance From Previous Seat 
+
+### Linear Mixed Model Analysis 
+
+#### MAIN Linear analysis:
+
+```{r}
+linear<-lmer(DistFromPrev~Time+Order+(1|UserName), data = comb.c, REML=F, na.action="na.omit")
+summary(linear)
+
+confint(linear, method="Wald")
+```
+
+
+#### Linear model PER INDIVIDUAL
+
+```{r}
+# ind<-NULL
+# for (id in levels(comb.c$UserName)){
+#   subs<-comb.c[comb.c$UserName==id,]
+#   if (nrow(subs)<2){
+#     next
+#   } else {
+#     coef<-lm(DistFromPrev~Time+Order, data = subs, na.action="na.omit")$coefficients
+#     ind<-rbind(ind, coef) 
+#   }
+# }
+# 
+# ind2<-as.data.frame(ind[complete.cases(ind),])
+# ind2$negslope<-ifelse(ind2$Time<0, 1, 0)
+# mean(ind2$negslope)
+# ind2$posslope<-ifelse(ind2$Order>0, 1, 0)
+# ind2$both<-ifelse(ind2$negslope==1 & ind2$posslope==1, 1, 0)
+# mean(ind2$both)
+
+```
+
+
+
+##### Proportion of people choosing the same seat
+
+```{r}
+prop<-glmer(MovedFromPrev~Time+Order+(1|UserName), data=comb.c, family=binomial(link="logit"),na.action = na.omit) 
+
+summary(prop)
+confint(prop, method="Wald")
+
+```
+
+
+#### Proportion of people NOT choosing the same seat
+
+```{r}
+nonzero<-subset(comb.c, MovedFromPrev==0)
+
+linear0<-lmer(DistFromPrev~Time+Order+(1|UserName), data = nonzero, REML=F, na.action="na.omit")
+summary(linear0)
+confint(linear0, method="Wald")
+```
+
+#### MAIN Curvilinear analysis (seems to be issues with this):
+
+```{r}
+curvilinear<-lmer(DistFromPrev~Time+Order+Time2+(1|UserName), data = comb.c, REML=F, na.action="na.omit")
+
+summary(curvilinear)
+confint(curvilinear, method="Wald")
+```
+
+#### Model Comparison:
+
+```{r}
+anova(linear, curvilinear)
+```
+
+
+### Removing Last Day and comparing linear vs curvilinear model
+
+```{r}
+curvilinear2<-lmer(DistFromPrev~Time+Order+Time2+(1|UserName), data = sub, REML=F, na.action="na.omit")
+summary(curvilinear2)
+confint(curvilinear2, method="Wald")
+
+linear2<-lmer(DistFromPrev~Time+Order+(1|UserName), data = sub, REML=F, na.action="na.omit")
+
+anova(linear2, curvilinear2)
+
+```
+
+### Removing First 2 weeks
+
+```{r}
+sub2<-subset(sub, Time>=22)
+
+lin.sub2<-lmer(DistFromPrev~Time+Order+(1|UserName), data = sub2, REML=F, na.action="na.omit")
+summary(lin.sub2)
+
+```
+
+### Graph of seating distance as a function of time {.tabset}
+
+#### Overall (Scatterplot + Means)
+
+```{r}
+comb_table<-plyr::count(comb.c, c("Time", "DistFromPrev"))
+comb.new<-merge(comb.c, comb_table, by=c("Time", "DistFromPrev"), all.x=T, all.y=F)
+
+graph1=ddply(comb.new, c("ID", "Week"), function(df) 
+  return(c(dep.avg=mean(df$DistFromPrev, na.rm=T)))) # change DV
+# head(graph1)
+graph2=ddply(graph1, c("Week"), function(df)  
+  return(c(dep.avg=mean(df$dep.avg, na.rm=T), dep.sd=sd(df$dep.avg, na.rm=T), dep.count=length(df$dep.avg), dep.sem=(sd(df$dep.avg, na.rm=T))/(sqrt(length(df$dep.avg))))))
+# print(graph2)
+
+plot1<-ggplot(comb.new, aes(x=Time, y=DistFromPrev)) +
+  geom_point(aes(size=freq), alpha=0.2, show.legend = F, colour="grey")+
+  geom_smooth(method=lm, formula = y ~ x + I(x^2), se=T, fullrange=TRUE, colour="gray55", alpha=.7)+
+  geom_smooth(data=sub, aes(x=Time, y=DistFromPrev), method=lm, se=F, fullrange=TRUE, colour="gray30", linetype="dotdash")+
+  geom_point(data = graph2, aes(x=Week, y=dep.avg), size=3.5, shape=17)+
+  # facet_grid(Year~.)+
+  theme(panel.background= element_rect(fill=NA), 
+        plot.background = element_rect(fill=NA, colour=NA),
+        axis.ticks.x=element_blank(),
+        panel.border = element_rect(fill="transparent", colour="grey60"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        plot.margin=unit(c(.5,.5,0,1), "cm"))+
+  # geom_smooth(data=sub, aes(x=Time, y=DistFromPrev), method=lm, se=F, fullrange=TRUE, colour="black", linetype="dotted")+
+  # geom_smooth(method=lm, formula=y ~ poly(x,2), colour="maroon", se=T, fullrange=TRUE)+
+  scale_x_continuous("Time (Days)")+
+  scale_y_continuous("Distance from Previous Seat (m)",  breaks=seq(0, 10, 1))+
+  coord_cartesian(xlim=c(0,88))
+
+
+graph3=ddply(comb.new, c("ID", "Week"), function(df) 
+  return(c(dep.avg=mean(df$MovedFromPrev, na.rm=T)))) # change DV
+graph4=ddply(graph3, c("Week"), function(df)  
+  return(c(dep.avg=mean(df$dep.avg, na.rm=T), dep.sd=sd(df$dep.avg, na.rm=T), dep.count=length(df$dep.avg), dep.sem=(sd(df$dep.avg, na.rm=T))/(sqrt(length(df$dep.avg))))))
+# print(graph2)
+
+plot2<-ggplot(graph4, aes(x=Week, y=dep.avg))+
+  geom_bar(position = "dodge", stat = "identity", fill="grey60")+
+  theme(panel.background= element_rect(fill=NA),
+        plot.background = element_rect(fill=NA, colour=NA),
+        axis.ticks.x=element_blank(),
+        panel.border = element_rect(fill="transparent", colour="transparent"),
+        # axis.line = element_line(colour="grey60"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.margin=unit(c(0,.5,0.5,1), "cm")
+        )+
+  scale_x_continuous("Time (Days)", position = 'bottom')+
+  geom_hline(yintercept=0, colour="grey60")+
+  geom_vline(xintercept= -4.1, colour="grey60", size=.2)+
+  scale_y_continuous("Proportion Individuals \nChoosing Same Seat", expand=c(0,0), limits=c(0, 0.6))+
+  coord_cartesian(xlim=c(0,88))
+
+
+png(file = "Classroom_Figure1_Updated.png", bg = "transparent", type = c("cairo"), width=2400, height=2200, res=300)
+
+cowplot::plot_grid(plot1, plot2, align = "v", nrow = 2, rel_heights = c(.7, .3), labels="AUTO",label_size = 16)
+
+dev.off()
+
+```
+
+
+
+## Exam vs. Lecture Day
+
+```{r}
+melted<-melt(lecex, id=c(1:9, 12:20))
+casted<-dcast(melted, ID+UserName+Year~ClassType+ExamType, mean, subset=.(variable=="DistFromPrev"), na.rm=T)
+
+final<-casted[complete.cases(casted),]
+remelt<-melt(final, id=1:3)
+remelt$variable=as.character(remelt$variable)
+remelt$ClassType<- factor(as.character(sapply(strsplit(remelt$variable, split='_', fixed=TRUE), function(x) (x[1]))))
+remelt$ExamType<- factor(as.factor(sapply(strsplit(remelt$variable, split='_', fixed=TRUE), function(x) (x[2]))))
+remelt$variable<-NULL
+names(remelt)[4]="DistFromPrev"
+remelt$ID=factor(remelt$ID)
+
+remelt$ClassType<-factor(remelt$ClassType, levels(remelt$ClassType)[c(2,1)])
+
+
+library(ez)
+amod<-ezANOVA(data=remelt, wid=.(ID), dv=.(DistFromPrev), within=.(ExamType, ClassType), type=3, 
+              detailed=T)
+amod
+```
+
+Breaking it down and looking at just the seating distance prior to and on the day of exam for (1) midterm/unit exams and (2) final exam
+
+```{r}
+m<-t.test(final$Lecture_Midterm, final$Exam_Midterm, paired=T)
+effsize::cohen.d(final$Lecture_Midterm, final$Exam_Midterm, paired=T, hedges.correction=T)
+f<-t.test(final$Lecture_Final, final$Exam_Final, paired=T)
+effsize::cohen.d(final$Lecture_Final, final$Exam_Final, paired=T, hedges.correction=T)
+
+```
+
+
+```{r}
+graph1=ddply(remelt, c("ID", "ClassType", "ExamType"), function(df) 
+  return(c(dep.avg=mean(df$DistFromPrev, na.rm=T)))) # change DV
+# head(graph1)
+graph2=ddply(graph1, c("ExamType", "ClassType"), function(df)  
+  return(c(dep.avg=mean(df$dep.avg, na.rm=T), dep.sd=sd(df$dep.avg, na.rm=T), dep.count=length(df$dep.avg), dep.sem=(sd(df$dep.avg, na.rm=T))/(sqrt(length(df$dep.avg))))))
+print(graph2)
+
+p.val<-c(f$ p.value, m$ p.value)
+round(p.adjust(p.val, "bonferroni"), 3)
+
+```
+
+corrected Bonferroni p value: `r `
+
+
+#### Graph
+
+```{r}
+err=amod$ANOVA$SSd/amod$ANOVA$DFd
+
+png(file = "Classroom_Figure2.png", bg = "transparent", type = c("cairo"), width=2400, height=1600, res=300)
+
+# change variable name (aov.1, aov.2, reg.1, reg.2)
+ggplot(graph2, aes(x=ExamType, y=dep.avg, group=ClassType, colour=ClassType))+   
+  geom_point(size=3, shape=16, position = position_dodge(0.5))+
+  geom_errorbar(aes(ymax=dep.avg+sqrt(err[4])*qt(0.975,df=dep.count-1)/sqrt(dep.count), 
+                    ymin=dep.avg-sqrt(err[4])*qt(0.975,df=dep.count-1)/sqrt(dep.count)),
+                width=0.10, position = position_dodge(0.5))+
+  theme(
+    panel.background= element_rect(fill=NA), # transparent panel
+    plot.background = element_rect(fill=NA, colour=NA), #transparent background
+    panel.grid=element_blank(), # remove panel grid
+    axis.ticks.x=element_blank(), # remove tick marks on x-axis
+    axis.ticks=element_line(colour="#432620"), # change colour of tick marks
+    panel.border = element_rect(fill="transparent", colour="grey60"), # change panel border colour
+    legend.background = element_rect(fill = "transparent", colour = "transparent"), # change legend background
+    axis.text = element_text(color="#432620"),
+    legend.key = element_rect(fill = "transparent", colour = "transparent")
+    )+
+  scale_colour_manual("Class", values=c("gray15","gray60"))+
+  scale_x_discrete("", labels=c("Final Unit Exam", "Other Unit Exams"))+
+  scale_y_continuous("Distance from Previous Seat (m)",  breaks=seq(0, 10, 0.5)
+                     ,limits=c(0.6,3.1)
+  )+
+  annotate("text", size=12, x=1, y=3,, colour="grey30", label="*")
+
+dev.off()
+
+```
+
+
+
+
+### ADDITIONAL ANALYSES
+
+
+#### People entered in as an additional factor
+```{r}
+numppl<-count(comb.c, c("Year", "Time"))
+comb.ppl<-merge(comb.c, numppl, by=c("Year", "Time"), all.x=T, all.y=F)
+plot(comb.ppl$DistFromPrev~comb.ppl$freq)
+
+ppl.mod<-lme(DistFromPrev ~ Time+Order+freq, random= ~1+Time|UserName, data = comb.ppl[comb.ppl$freq<18,], na.action = "na.omit", method="ML")
+summary(ppl.mod)
+```
+
+#### Interval between classes
+```{r}
+# remove intervals greater than 7
+# interval<-subset(comb.c, !(Interval>8))
+days.mod1<-lme(DistFromPrev ~ Interval, random= ~1|UserName, data = interval, na.action = "na.omit", method="ML")
+days.mod2<-lme(DistFromPrev ~ Time+Order+Interval, random= ~1+Time|UserName, data = interval, na.action = "na.omit", method="ML")
+```
+
+```{r}
+graph1=ddply(comb.c, c("ID", "Interval"), function(df) 
+  return(c(dep.avg=mean(df$DistFromPrev, na.rm=T)))) # change DV
+head(graph1)
+graph2=ddply(graph1, c("Interval"), function(df)  
+  return(c(dep.avg=mean(df$dep.avg, na.rm=T), dep.sd=sd(df$dep.avg, na.rm=T), dep.count=length(df$dep.avg), dep.sem=(sd(df$dep.avg, na.rm=T))/(sqrt(length(df$dep.avg))))))
+# print(graph2)
+graph2<-graph2[complete.cases(graph2),]
+
+ggplot(graph2, aes(x=Interval, y=dep.avg))+   
+  # geom_line()+
+  geom_point(size=4, shape=17, position = position_dodge(0.5))+
+  theme(
+    panel.background= element_rect(fill=NA), # transparent panel
+    plot.background = element_rect(fill=NA, colour=NA), #transparent background
+    panel.grid=element_blank(), # remove panel grid
+    axis.ticks.x=element_blank(), # remove tick marks on x-axis
+    axis.ticks=element_line(colour="#432620"), # change colour of tick marks
+    panel.border = element_rect(fill="transparent", colour="#432620"), # change panel border colour
+    legend.background = element_rect(fill = "transparent", colour = "transparent"), # change legend background
+    axis.text = element_text(color="#432620"),
+    legend.key = element_rect(fill = "transparent", colour = "transparent")
+  )
+  # scale_colour_manual(values=c("gray15","gray60"))+
+  # scale_x_continuous("Time (Days)")+
+  # scale_y_continuous("Distance from Previous Seat (m)",  breaks=seq(0, 10, 1), limits=c(0,4))
+  # geom_smooth(data = comb.c, aes(x = Time, y = DistFromPrev), method=lm, se=T, fullrange=TRUE, colour="lightseagreen")
+
+  
+```
+
+
+
+### OTHER GRAPHS/ANALYSES 
+
+```{r}
+graph1=ddply(comb.c, c("ID", "Time"), function(df) 
+  return(c(dep.avg=mean(df$DistFromPrev, na.rm=T)))) # change DV
+head(graph1)
+graph2=ddply(graph1, c("Time"), function(df)  
+  return(c(dep.avg=mean(df$dep.avg, na.rm=T), dep.sd=sd(df$dep.avg, na.rm=T), dep.count=length(df$dep.avg), dep.sem=(sd(df$dep.avg, na.rm=T))/(sqrt(length(df$dep.avg))))))
+# print(graph2)
+
+
+ggplot(graph2, aes(x=Time, y=dep.avg))+   
+  geom_line()+
+  geom_point(size=4, shape=17, position = position_dodge(0.5))+
+  theme(
+    panel.background= element_rect(fill=NA), # transparent panel
+    plot.background = element_rect(fill=NA, colour=NA), #transparent background
+    panel.grid=element_blank(), # remove panel grid
+    axis.ticks.x=element_blank(), # remove tick marks on x-axis
+    axis.ticks=element_line(colour="#432620"), # change colour of tick marks
+    panel.border = element_rect(fill="transparent", colour="#432620"), # change panel border colour
+    legend.background = element_rect(fill = "transparent", colour = "transparent"), # change legend background
+    axis.text = element_text(color="#432620"),
+    legend.key = element_rect(fill = "transparent", colour = "transparent")
+  )+
+  # scale_colour_manual(values=c("gray15","gray60"))+
+  scale_x_continuous("Time (Days)")+
+  scale_y_continuous("Distance from Previous Seat (m)",  breaks=seq(0, 10, 1)
+                     , limits=c(0,4))+
+  geom_smooth(data = comb.c, aes(x = Time, y = DistFromPrev), method=lm, se=T, fullrange=TRUE, colour="lightseagreen")
+
+  
+```
+
+
+
+#### By Course
+
+```{r}
+graph1=ddply(comb.c, c("ID", "Time", "Year", "ClassType"), function(df) 
+  return(c(dep.avg=mean(df$DistFromPrev, na.rm=T)))) # change DV
+graph2=ddply(graph1, c("Time", "Year", "ClassType"), function(df)  
+  return(c(dep.avg=mean(df$dep.avg, na.rm=T), dep.sd=sd(df$dep.avg, na.rm=T), dep.count=length(df$dep.avg), dep.sem=(sd(df$dep.avg, na.rm=T))/(sqrt(length(df$dep.avg))))))
+print(graph2)
+
+# change variable name (aov.1, aov.2, reg.1, reg.2)
+ggplot(graph2, aes(x=Time, y=dep.avg, group=Year))+   
+  geom_line()+
+  geom_point(size=3.5, shape=17, position = position_dodge(0.5), aes(colour=ClassType))+
+  facet_grid(Year~.)+
+  theme(
+    panel.background= element_rect(fill=NA), # transparent panel
+    plot.background = element_rect(fill=NA, colour=NA), #transparent background
+    panel.grid=element_blank(), # remove panel grid
+    axis.ticks.x=element_blank(), # remove tick marks on x-axis
+    axis.ticks=element_line(colour="#432620"), # change colour of tick marks
+    panel.border = element_rect(fill="transparent", colour="#432620"), # change panel border colour
+    legend.background = element_rect(fill = "transparent", colour = "transparent"), # change legend background
+    axis.text = element_text(color="#432620"),
+    legend.key = element_rect(fill = "transparent", colour = "transparent")
+    # ,legend.position="none"
+  )+
+  scale_colour_manual("Class Type", values=c("gray15","gray60"))+
+  scale_x_continuous("Time (Days)")+
+  scale_y_continuous("Distance from Previous Seat (m)",  breaks=seq(0, 10, 1)
+                     , limits=c(0.1,4.2)
+  )
+```
+
+#### Once A Week Classes Combined Only
+
+```{r}
+comb_table<-count(once, c("Time", "DistFromPrev"))
+comb.new<-merge(once, comb_table, by=c("Time", "DistFromPrev"), all.x=T, all.y=F)
+
+graph1=ddply(once, c("ID", "Time"), function(df) 
+  return(c(dep.avg=mean(df$DistFromPrev, na.rm=T)))) # change DV
+# head(graph1)
+graph2=ddply(graph1, c("Time"), function(df)  
+  return(c(dep.avg=mean(df$dep.avg, na.rm=T), dep.sd=sd(df$dep.avg, na.rm=T), dep.count=length(df$dep.avg), dep.sem=(sd(df$dep.avg, na.rm=T))/(sqrt(length(df$dep.avg))))))
+print(graph2)
+
+png(file = "OncePerWeekClassesOnly2.png", bg = "transparent", type = c("cairo"), width=1600, height=1800, res=300)
+
+ggplot(comb.new, aes(x=Time, y=DistFromPrev)) +
+  geom_point(aes(size=freq), alpha=0.2, show.legend = F, colour="grey")+
+  geom_smooth(method=lm, se=F, fullrange=TRUE,  formula= y~ x+I(x^2),colour="gray55", )+
+  geom_smooth(data=sub, aes(x=Time, y=DistFromPrev),  formula= y~ x+I(x^2),method=lm, se=F, fullrange=TRUE, colour="gray30", linetype="dotdash")+
+  geom_point(data = graph2, aes(x=Time, y=dep.avg), size=3.5, shape=17)+
+  # facet_grid(Year~.)+
+  theme(panel.background= element_rect(fill=NA), 
+        plot.background = element_rect(fill=NA, colour=NA),
+        axis.ticks.x=element_blank(),
+        panel.border = element_rect(fill="transparent", colour="grey60"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank())+
+  # geom_smooth(data=sub, aes(x=Time, y=DistFromPrev), method=lm, se=F, fullrange=TRUE, colour="black", linetype="dotted")+
+  # geom_smooth(method=lm, formula=y ~ poly(x,2), colour="maroon", se=T, fullrange=TRUE)+
+  scale_x_continuous("Time (Days)")+
+  scale_y_continuous("Distance from Previous Seat (m)",  breaks=seq(0, 10, 1)
+                       , limits=c(0,5))
+
+dev.off()
+
+```
+
+#### By Class (Scatterplot + Means)
+
+```{r}
+comb_table<-count(comb.c, c("Year", "Time", "DistFromPrev"))
+comb.new<-merge(comb.c, comb_table, by=c("Year", "Time", "DistFromPrev"), all.x=T, all.y=F)
+
+graph1=ddply(comb.c, c("ID", "Time", "Year", "ClassType"), function(df) 
+  return(c(dep.avg=mean(df$DistFromPrev, na.rm=T)))) # change DV
+graph2=ddply(graph1, c("Time", "Year", "ClassType"), function(df)  
+  return(c(dep.avg=mean(df$dep.avg, na.rm=T), dep.sd=sd(df$dep.avg, na.rm=T), dep.count=length(df$dep.avg), dep.sem=(sd(df$dep.avg, na.rm=T))/(sqrt(length(df$dep.avg))))))
+print(graph2)
+
+png(file = "Figure2B.png", bg = "transparent", type = c("cairo"), width=2000, height=1800, res=300)
+
+label <- c(F2014="Class 1 (Twice/Week)", W2016="Class 2 (Twice/Week)", F2015="Class 3 (Once/Week)", W2015="Class 4 (Once/Week)")
+
+ggplot(graph2, aes(x=Time, y=dep.avg, group=Year))+   
+  geom_point(data=comb.new, aes(x=Time, y=DistFromPrev, size=freq), alpha=0.15, show.legend = F, colour="grey")+
+  geom_smooth(data=comb.c, aes(x=Time, y=DistFromPrev), method=lm, se=F, fullrange=TRUE, colour="gray55", )+
+  geom_smooth(data=sub, aes(x=Time, y=DistFromPrev), method=lm, se=F, fullrange=TRUE, colour="gray30", linetype="dotdash")+
+  geom_point(size=3, shape=17, position = position_dodge(0.5), aes(colour=ClassType))+
+  facet_wrap(.~Year, ncol=2, labeller=labeller(Year = label))+
+  theme(
+    panel.background= element_rect(fill=NA), # transparent panel
+    plot.background = element_rect(fill=NA, colour=NA), #transparent background
+    panel.grid=element_blank(), # remove panel grid
+    axis.ticks.x=element_blank(), # remove tick marks on x-axis
+    axis.ticks=element_line(colour="#432620"), # change colour of tick marks
+    panel.border = element_rect(fill="transparent", colour="grey60"), # change panel border colour
+    legend.background = element_rect(fill = "transparent", colour = "transparent"), # change legend background
+    axis.text = element_text(color="#432620"),
+    legend.key = element_rect(fill = "transparent", colour = "transparent"),
+    strip.background = element_rect(colour="gray60", fill="transparent")
+  )+
+  scale_colour_manual("Class Type", values=c("gray15","gray60"))+
+  scale_x_continuous("Time (Days)")+
+  scale_y_continuous("Distance from Previous Seat (m)",  breaks=seq(0, 10, 1))
+
+dev.off()
+
+```
+
+
+#### By Class (Scatterplot + Means); Curvilinear 
+
+```{r}
+comb_table<-count(comb.c, c("Year", "Time", "DistFromPrev"))
+comb.new<-merge(comb.c, comb_table, by=c("Year", "Time", "DistFromPrev"), all.x=T, all.y=F)
+
+graph1=ddply(comb.c, c("ID", "Time", "Year", "ClassType"), function(df) 
+  return(c(dep.avg=mean(df$DistFromPrev, na.rm=T)))) # change DV
+graph2=ddply(graph1, c("Time", "Year", "ClassType"), function(df)  
+  return(c(dep.avg=mean(df$dep.avg, na.rm=T), dep.sd=sd(df$dep.avg, na.rm=T), dep.count=length(df$dep.avg), dep.sem=(sd(df$dep.avg, na.rm=T))/(sqrt(length(df$dep.avg))))))
+print(graph2)
+
+label <- c(F2014="Class 1 (Twice/Week)", W2016="Class 2 (Twice/Week)", F2015="Class 3 (Once/Week)", W2015="Class 4 (Once/Week)")
+
+png(file = "CurvilinearByClass.png", bg = "transparent", type = c("cairo"), width=2000, height=1800, res=300)
+
+ggplot(graph2, aes(x=Time, y=dep.avg, group=Year))+   
+  geom_point(data=comb.new, aes(x=Time, y=DistFromPrev, size=freq), alpha=0.15, show.legend = F, colour="grey")+
+  geom_smooth(data=comb.c, aes(x=Time, y=DistFromPrev), method=lm, formula = y ~ x + I(x^2), se=F, fullrange=TRUE, colour="gray55", )+
+  geom_smooth(data=sub, aes(x=Time, y=DistFromPrev), method=lm, formula = y ~ x + I(x^2), se=F, fullrange=TRUE, colour="gray30", linetype="dotdash")+
+  geom_point(size=3, shape=17, position = position_dodge(0.5), aes(colour=ClassType))+
+  facet_wrap(.~Year, ncol=2, labeller=labeller(Year = label))+
+  theme(
+    panel.background= element_rect(fill=NA), # transparent panel
+    plot.background = element_rect(fill=NA, colour=NA), #transparent background
+    panel.grid=element_blank(), # remove panel grid
+    axis.ticks.x=element_blank(), # remove tick marks on x-axis
+    axis.ticks=element_line(colour="#432620"), # change colour of tick marks
+    panel.border = element_rect(fill="transparent", colour="grey60"), # change panel border colour
+    legend.background = element_rect(fill = "transparent", colour = "transparent"), # change legend background
+    axis.text = element_text(color="#432620"),
+    legend.key = element_rect(fill = "transparent", colour = "transparent"),
+    strip.background = element_rect(colour="gray60", fill="transparent")
+  )+
+  scale_colour_manual("Class", values=c("gray15","gray60"))+
+  scale_x_continuous("Time (Days)")+
+  scale_y_continuous("Distance from Previous Seat (m)",  breaks=seq(0, 10, 1))
+
+dev.off()
+
+
+```
+
+
+
+
+### Repetition 
+
+```{r}
+int<-lmer(DistFromPrev~Time+Order+Time2*ClassFreq+(1|UserName), data = comb.c, REML=F, na.action="na.omit")
+summary(int)
+confint(int, method="Wald")
+```
+
+#### Linear Effects
+
+```{r}
+int.lin<-lmer(DistFromPrev~Time+Order+Time2*ClassFreq+(1|UserName), data = sub, REML=F, na.action="na.omit")
+summary(int.lin)
+```
+
+#### Curvilinear Effects
+```{r}
+final<-subset(lecex, ExamType=="Final")
+fin.m<-melt(final, id=c(1:10, 12:20))
+fin.cast<-dcast(fin.m, ID+UserName+ClassFreq+Year~ClassType)
+
+
+equal<-subset(comb.c, comb.c$Time %in% unique(comb.c$Time[comb.c$ClassFreq=="Once"]))
+
+int2<-lmer(DistFromPrev~Time+Order+Time2*ClassFreq+(1|UserName), data = equal, REML=F, na.action="na.omit")
+summary(int2)
+confint(int2, method="Wald")
+
+
+equal.sub<-subset(equal, equal$FinalExam=="No")
+
+int<-NULL
+for (id in levels(sub$ID)){
+  subs<-sub[sub$ID==id,]
+  subs.eq<-equal.sub[equal.sub$ID==id,]
+  if (nrow(subs)<4){
+    next
+  } else {
+    mod<-lm(DistFromPrev~Time+Order, data = subs, na.action="na.omit")
+    coef<-mod$coefficients
+    se<-coef(summary(mod))[, 2]
+    time<-data.frame(ID=id, ClassFreq=subs$ClassFreq[1], Obs=nrow(subs), as.data.frame(cbind(coef, se))[2,])
+  }
+  if (nrow(subs.eq)<4){
+    next
+  } else {
+    mod.eq<-lm(DistFromPrev~Time+Order, data = subs.eq, na.action="na.omit")
+    coef.eq<-mod.eq$coefficients
+    se.eq<-coef(summary(mod.eq))[, 2]
+    time.eq<-data.frame(Obs.eq=nrow(subs.eq), as.data.frame(cbind(coef.eq, se.eq))[2,])
+  }
+  both<-cbind(time, time.eq)
+  int<-rbind(int, both)
+}
+
+finint<-merge(int, fin.cast[c(1,2,6)], by="ID", all.x=T, all.y=F)
+
+des<-cbind(ddply(sub, .(ID), function(df)
+  return(c(Avg=mean(df$DistFromPrev, na.rm=T),
+           SD=sd(df$DistFromPrev, na.rm=T),
+           Count=length(df$DistFromPrev)))),
+  ddply(equal.sub, .(ID), function(df)
+  return(c(Avg.eq=mean(df$DistFromPrev, na.rm=T),
+           SD.eq=sd(df$DistFromPrev, na.rm=T),
+           Count.eq=length(df$DistFromPrev)))))[-c(5)]
+des2<-des[complete.cases(des),]
+
+finint<-merge(finint, des2, by="ID", all.x=T, all.y=F)
+
+
+# Model with coef as predictor
+fin.mod<-lm(Exam~coef.eq+Avg.eq, data=finint)
+
+# Model with se as redictor
+fin.mod2<-lm(Exam~se.eq+Avg.eq+SD.eq, data=finint)
+
+# Model with SD as predictor
+fin.mod3<-lm(Exam~SD.eq+Avg.eq, data=finint)
+
+t.test(finint$Exam~finint$ClassFreq)
+
+ggplot(finint2, aes(x=se.eq, y=Exam, group=ClassFreq, colour=ClassFreq)) +
+  geom_point()+
+  geom_smooth(method=lm, se=T, fullrange=TRUE)
+
+ggplot(finint2, aes(x=coef, y=Exam, group=ClassFreq, colour=ClassFreq)) +
+  geom_point()+
+  geom_smooth(method=lm, se=T, fullrange=TRUE)
+
+```
+
+
+#### By Class FREQUENCY (Scatterplot + Means); 
+
+```{r}
+comb_table<-count(equal, c("Time", "ClassFreq", "DistFromPrev"))
+comb.new<-merge(equal, comb_table, by=c("Time", "ClassFreq", "DistFromPrev"), all.x=T, all.y=F)
+
+graph1=ddply(comb.new, c("ID", "Week", "ClassFreq"), function(df) 
+  return(c(dep.avg=mean(df$DistFromPrev, na.rm=T)))) # change DV
+# head(graph1)
+graph2=ddply(graph1, c("Week", "ClassFreq"), function(df)  
+  return(c(dep.avg=mean(df$dep.avg, na.rm=T), dep.sd=sd(df$dep.avg, na.rm=T), dep.count=length(df$dep.avg), dep.sem=(sd(df$dep.avg, na.rm=T))/(sqrt(length(df$dep.avg))))))
+# print(graph2)
+
+label <- c(Once="Once/Week", Twice="Twice/Week")
+
+# png(file = "Classroom_Figure3.png", bg = "transparent", type = c("cairo"), width=2200, height=1400, res=300)
+
+ggplot(comb.new, aes(x=Time, y=DistFromPrev)) +
+  geom_point(aes(size=freq), alpha=0.2, show.legend = F, colour="grey")+
+  geom_smooth(method=lm, formula = y ~ x + I(x^2), se=F, fullrange=TRUE, colour="gray55")+
+  geom_smooth(data=equal.sub, aes(x=Time, y=DistFromPrev), method=lm, se=F, fullrange=TRUE, colour="gray30", linetype="dotdash")+
+  geom_point(data = graph2, aes(x=Week, y=dep.avg), size=3.5, shape=17)+
+  facet_grid(.~ClassFreq)+
+  theme(panel.background= element_rect(fill=NA), 
+        plot.background = element_rect(fill=NA, colour=NA),
+        axis.ticks.x=element_blank(),
+        panel.border = element_rect(fill="transparent", colour="grey60"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        plot.margin=unit(c(.5,.5,0.5,.5), "cm"))+
+  # geom_smooth(data=sub, aes(x=Time, y=DistFromPrev), method=lm, se=F, fullrange=TRUE, colour="black", linetype="dotted")+
+  # geom_smooth(method=lm, formula=y ~ poly(x,2), colour="maroon", se=T, fullrange=TRUE)+
+  scale_x_continuous("Time (Days)")+
+  scale_y_continuous("Distance from Previous Seat (m)",  breaks=seq(0, 10, 1))+
+  coord_cartesian(xlim=c(0,88))
+
+# dev.off()
+
+
+```
+
+
+
+
+## subset of data set that includes individuals that attended more than 1 of the 4 courses
+
+```{r}
+id<-unique(comb.c$ID)
+ID<-data.frame(ID=id, UserName=substr(id, 1, nchar(as.character(id))-5))
+dup<-ID$UserName[duplicated(ID$UserName)]
+
+duplicate<-ID[ID$UserName %in% dup,]
+duplicate<-duplicate[order(duplicate$UserName),]
+duplicate$ClassOrder<-factor(c("First", "Second"))
+
+repeats<-merge(comb.c[comb.c$UserName %in% dup,], duplicate, by="ID", all.x=T, all.y=F)
+
+r2<-subset(repeats, FinalExam=="No")
+
+cross<-lme(DistFromPrev~Time+Order+Time2*ClassOrder, random = ~1|ID, data = repeats, method="ML", na.action=na.omit)
+summary(cross)
+```
+
+
+
+
