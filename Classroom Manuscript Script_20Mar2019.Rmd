@@ -47,7 +47,7 @@ comb$ClassType<-factor(comb$ClassType)
 comb$ClassType<-factor(comb$ClassType, levels(comb$ClassType)[c(2,1)])
 comb$Year<-factor(comb$Year)
 comb$Year<-factor(comb$Year, levels(comb$Year)[c(1,4,2,3)])
-comb$MovedFromPrev<-ifelse(comb$DistFromPrev<.1, 1, 0) # did individuals move (y/n)
+comb$MovedFromPrev<-ifelse(comb$DistFromPrev<.1, 1, 0) # 1 = same seats; 0 = different seats
 comb$Condition=factor(comb$Condition)
 comb$Condition=factor(comb$Condition, levels(comb$Condition)[c(2,1)])
 comb$ID<-factor(paste0(comb$UserName, comb$Year))
@@ -205,7 +205,15 @@ tab_model(linear0, transform=NULL, show.stat = T, p.val = "wald", digits = 3)
 
 ```{r}
 curvilinear<-lmer(DistFromPrev~Time.c+Order.c+Time2.c+(1|UserName), data = comb.c, REML=F, na.action="na.omit")
-tab_model(curvilinear, transform=NULL, show.stat = T, p.val = "wald", digits = 5)
+tab_model(curvilinear, transform=NULL, show.stat = T, p.val = "wald", digits = 3)
+```
+
+#### Model To Include for Paper
+```{r}
+tab_model(linear, curvilinear, transform=NULL, show.stat = T, p.val = "wald", digits = 4,
+          dv.labels = c("Linear Model", "Curvilinear Model"),
+          pred.labels = c("Intercept", "Time", "Order", "Time^2"),
+          show.aic = T)
 ```
 
 #### Model Comparison:
@@ -252,9 +260,9 @@ graph2=ddply(graph1, c("Week"), function(df)
   return(c(dep.avg=mean(df$dep.avg, na.rm=T), dep.sd=sd(df$dep.avg, na.rm=T), dep.count=length(df$dep.avg), dep.sem=(sd(df$dep.avg, na.rm=T))/(sqrt(length(df$dep.avg))))))
 # print(graph2)
 
-png(file = "Classroom_Figure1_Updated_23Jul2019.png", bg = "transparent", type = c("cairo"), width=2400, height=1600, res=300)
+# png(file = "Classroom_Figure2_Updated_7Jan2020.png", bg = "white", type = c("cairo"), width=2400, height=2200, res=300)
 
-# plot1<-
+plot1<-
   ggplot(comb.new, aes(x=Time, y=DistFromPrev)) +
   geom_point(aes(size=freq), alpha=0.2, show.legend = F, colour="grey")+
   geom_smooth(method=lm, formula = y ~ x + I(x^2), se=F, fullrange=TRUE, colour="gray55", alpha=.7)+
@@ -275,35 +283,35 @@ png(file = "Classroom_Figure1_Updated_23Jul2019.png", bg = "transparent", type =
   coord_cartesian(xlim=c(0,88))
 
 
-# graph3=ddply(comb.new, c("ID", "Week"), function(df) 
-#   return(c(dep.avg=mean(df$MovedFromPrev, na.rm=T)))) # change DV
-# graph4=ddply(graph3, c("Week"), function(df)  
-#   return(c(dep.avg=mean(df$dep.avg, na.rm=T), dep.sd=sd(df$dep.avg, na.rm=T), dep.count=length(df$dep.avg), dep.sem=(sd(df$dep.avg, na.rm=T))/(sqrt(length(df$dep.avg))))))
-# # print(graph2)
-# 
-# plot2<-ggplot(graph4, aes(x=Week, y=dep.avg))+
-#   geom_bar(position = "dodge", stat = "identity", fill="grey60")+
-#   theme(panel.background= element_rect(fill=NA),
-#         plot.background = element_rect(fill=NA, colour=NA),
-#         axis.ticks.x=element_blank(),
-#         panel.border = element_rect(fill="transparent", colour="transparent"),
-#         # axis.line = element_line(colour="grey60"),
-#         panel.grid.major = element_blank(),
-#         panel.grid.minor = element_blank(),
-#         plot.margin=unit(c(0,.5,0.5,1), "cm")
-#         )+
-#   scale_x_continuous("Time (Days)", position = 'bottom')+
-#   geom_hline(yintercept=0, colour="grey60")+
-#   geom_vline(xintercept= -4.1, colour="grey60", size=.2)+
-#   scale_y_continuous("Proportion Individuals \nChoosing Same Seat", expand=c(0,0), limits=c(0, 0.6))+
-#   coord_cartesian(xlim=c(0,88))
-# 
-# 
+graph3=ddply(comb.new, c("ID", "Week"), function(df)
+  return(c(dep.avg=mean(df$MovedFromPrev, na.rm=T)))) # change DV
+graph4=ddply(graph3, c("Week"), function(df)
+  return(c(dep.avg=mean(df$dep.avg, na.rm=T), dep.sd=sd(df$dep.avg, na.rm=T), dep.count=length(df$dep.avg), dep.sem=(sd(df$dep.avg, na.rm=T))/(sqrt(length(df$dep.avg))))))
+# print(graph2)
+
+plot2<-ggplot(graph4, aes(x=Week, y=dep.avg))+
+  geom_bar(position = "dodge", stat = "identity", fill="grey60")+
+  theme(panel.background= element_rect(fill=NA),
+        plot.background = element_rect(fill=NA, colour=NA),
+        axis.ticks.x=element_blank(),
+        panel.border = element_rect(fill="transparent", colour="transparent"),
+        # axis.line = element_line(colour="grey60"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.margin=unit(c(0,.5,0.5,1), "cm")
+        )+
+  scale_x_continuous("Time (Days)", position = 'bottom')+
+  geom_hline(yintercept=0, colour="grey60")+
+  geom_vline(xintercept= -4.1, colour="grey60", size=.2)+
+  scale_y_continuous("Proportion Individuals \nChoosing Same Seat", expand=c(0,0), limits=c(0, 0.6))+
+  coord_cartesian(xlim=c(0,88))
+
+
 # png(file = "Classroom_Figure1_Updated_23Jul2019.png", bg = "transparent", type = c("cairo"), width=2400, height=1400, res=300)
   
-# cowplot::plot_grid(plot1, plot2, align = "v", nrow = 2, rel_heights = c(.7, .3), labels="AUTO",label_size = 16)
+cowplot::plot_grid(plot1, plot2, align = "v", nrow = 2, rel_heights = c(.7, .3), labels="AUTO",label_size = 16)
 
-dev.off()
+# dev.off()
 
 ```
 
@@ -341,9 +349,9 @@ mod4<-lmer(DistFromPrev~ClassType+(1|UserName), data = remelt[remelt$ExamType=="
           REML=F, na.action="na.omit")
 tab_model(mod3, mod4, transform=NULL, show.stat = T, p.val = "wald", digits = 2)
 
-# amod<-ezANOVA(data=remelt, wid=.(ID), dv=.(DistFromPrev), within=.(ExamType, ClassType), type=3, 
-#               detailed=T)
-# amod
+amod<-ezANOVA(data=remelt, wid=.(ID), dv=.(DistFromPrev), within=.(ExamType, ClassType), type=3,
+              detailed=T)
+amod
 
 
 ```
@@ -422,7 +430,7 @@ numppl<-count(comb.c, c("Year", "Time"))
 comb.ppl<-merge(comb.c, numppl, by=c("Year", "Time"), all.x=T, all.y=F)
 plot(comb.ppl$DistFromPrev~comb.ppl$freq)
 
-ppl.mod<-lme(DistFromPrev ~ Time+Order+freq, random= ~1+Time|UserName, data = comb.ppl[comb.ppl$freq<18,], na.action = "na.omit", method="ML")
+ppl.mod<-lmer(DistFromPrev ~ Time+Order+freq+(1|UserName), data = comb.ppl[comb.ppl$freq<18,], na.action = "na.omit", method="ML")
 summary(ppl.mod)
 ```
 
@@ -816,6 +824,70 @@ r2<-subset(repeats, FinalExam=="No")
 cross<-lme(DistFromPrev~Time+Order+Time2*ClassOrder, random = ~1|ID, data = repeats, method="ML", na.action=na.omit)
 summary(cross)
 ```
+
+
+
+
+
+# ADDITIONAL ANALYSES
+
+
+```{r}
+order<-ddply(comb.c, .(ID), summarise, 
+             mean.order=mean(Order), 
+             sd.order=sd(Order),
+             n.order=length(Order))
+
+sub.o<-subset(order, n.order>3)
+sub.o2<-subset(sub.o, mean.order>5)
+
+
+graph2=ddply(graph1, c("Week", "ClassFreq"), function(df)  
+  return(c(dep.avg=mean(df$dep.avg, na.rm=T), dep.sd=sd(df$dep.avg, na.rm=T), dep.count=length(df$dep.avg), dep.sem=(sd(df$dep.avg, na.rm=T))/(sqrt(length(df$dep.avg))))))
+
+```
+
+```{r}
+new<-comb.c
+
+new$Dist<-ifelse(new$DistFromPrev<1.5, "Short", "Long")
+
+graph2<-ddply(new, .(ID), summarise,
+              meanDist=mean(DistFromPrev, na.rm=T),
+              sdDist=sd(DistFromPrev, na.rm=T),
+              meanOrder=mean(Order, na.rm=T),
+              sdOrder=sd(Order, na.rm=T),
+              count=length(DistFromPrev))
+
+model<-lm(meanDist~meanOrder, data=graph2)
+tab_model(model)
+
+```
+
+
+
+
+
+### Heat Map 
+
+```{r}
+ggplot(pos2, aes(x=X, y=Y) ) +
+  facet_grid(IS_TARG~PrePost)+
+  stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE) +
+  theme_bw()+
+  scale_fill_viridis()+
+  scale_x_continuous("Position (X-Cordinate)", expand = c(0, 0)) +
+  scale_y_continuous("Position (Y-Cordinate)", expand = c(0, 0)) +
+  theme(
+    # legend.position='none'
+  )
+```
+
+
+
+### Additional Analysis
+
+
 
 
 
